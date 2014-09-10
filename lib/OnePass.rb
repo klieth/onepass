@@ -49,7 +49,6 @@ module OnePass
         FileUtils.cp(path, temp)
 
         # read profile data
-        #db = SQLite3::Database.new "OnePassword.sqlite"
         db = SQLite3::Database.new temp.path
         # FIXME: This assumes a single profile; it's unclear from the documentation whether it's possible to have multiple of these
         profile = db.execute "SELECT master_key_data,overview_key_data,salt,iterations FROM profiles"
@@ -81,7 +80,6 @@ module OnePass
         # delete the local copy of the database
         db.close
       ensure
-        #FileUtils.rm Dir.glob("OnePassword.sqlite*")
         temp.close(true)
       end
     end
