@@ -2,6 +2,7 @@ require "OnePass/version"
 require "openssl"
 require "sqlite3"
 require "json"
+require "tempfile"
 
 module OnePass
   class VerifyException < Exception
@@ -44,10 +45,12 @@ module OnePass
         # copy db locally
         path ||= "#{ENV["HOME"]}/Library/Application Support/1Password 4/Data/OnePassword.sqlite"
         raise "Can't find sqlite db at #{path}" unless File.exist? path
-        FileUtils.cp(path, ".")
+        temp = Tempfile.new('OnePassword.sqlite')
+        FileUtils.cp(path, temp)
 
         # read profile data
-        db = SQLite3::Database.new "OnePassword.sqlite"
+        #db = SQLite3::Database.new "OnePassword.sqlite"
+        db = SQLite3::Database.new temp.path
         # FIXME: This assumes a single profile; it's unclear from the documentation whether it's possible to have multiple of these
         profile = db.execute "SELECT master_key_data,overview_key_data,salt,iterations FROM profiles"
         profile = profile[0]
@@ -78,7 +81,8 @@ module OnePass
         # delete the local copy of the database
         db.close
       ensure
-        FileUtils.rm Dir.glob("OnePassword.sqlite*")
+        #FileUtils.rm Dir.glob("OnePassword.sqlite*")
+        temp.close(true)
       end
     end
 
