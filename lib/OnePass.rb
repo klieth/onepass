@@ -53,10 +53,9 @@ module OnePass
         # FIXME: This assumes a single profile; it's unclear from the documentation whether it's possible to have multiple of these
         profile = db.execute "SELECT master_key_data,overview_key_data,salt,iterations FROM profiles"
         profile = profile[0]
-        digest = OpenSSL::Digest::SHA512.new
 
         # derive the key from the password
-        derived_key = OpenSSL::PKCS5.pbkdf2_hmac(master_password, profile[2], profile[3], 64, digest)
+        derived_key = OpenSSL::PKCS5.pbkdf2_hmac(master_password, profile[2], profile[3], 64, OpenSSL::Digest::SHA512.new)
         derived_encryption_key = derived_key[0..31]
         derived_mac_key = derived_key[32..-1]
 
@@ -65,7 +64,8 @@ module OnePass
         overview_key = OpenSSL::Digest::SHA512.new.digest(overview_key_data.data)
         overview_encryption_key, overview_mac_key = overview_key[0..31], overview_key[32..-1]
 
-        # load overview opdata into object based format
+        # load overview opdata into object based format. overviews are stored decrypted for use later.
+        # the encrypted data for the keys is included, but is not decrypted unless requested later
         @overviews = []
         db.execute "SELECT items.key_data, items.overview_data, item_details.data FROM items INNER JOIN item_details ON items.id=item_details.item_id;" do |row|
           overview = OnePass::Opdata.new(row[1], overview_encryption_key, overview_mac_key)
@@ -73,6 +73,7 @@ module OnePass
           @overviews << json
         end
 
+        # decrypt the master key for use later
         master_key_data = OnePass::Opdata.new(profile[0], derived_encryption_key, derived_mac_key)
         master_key = OpenSSL::Digest::SHA512.new.digest(master_key_data.data)
         @master_encryption_key, @master_mac_key = master_key[0..31], master_key[32..-1]
