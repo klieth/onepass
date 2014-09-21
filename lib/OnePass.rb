@@ -52,8 +52,6 @@ module OnePass
         db = SQLite3::Database.new temp.path
         @overviews = []
         @masters = []
-        # FIXME: This assumes a single profile; it's unclear from the documentation whether it's possible to have multiple of these
-        # profile = db.execute "SELECT master_key_data,overview_key_data,salt,iterations FROM profiles"
         db.execute "SELECT id,master_key_data,overview_key_data,salt,iterations FROM profiles" do |profile|
 
           # derive the key from the password
@@ -77,7 +75,6 @@ module OnePass
           # decrypt the master key for use later
           master_key_data = OnePass::Opdata.new(profile[1], derived_encryption_key, derived_mac_key)
           master_key = OpenSSL::Digest::SHA512.new.digest(master_key_data.data)
-          # @master_encryption_key, @master_mac_key = master_key[0..31], master_key[32..-1]
           @masters[profile[0]] = {enc_key: master_key[0..31], mac_key: master_key[32..-1]}
         end
 
