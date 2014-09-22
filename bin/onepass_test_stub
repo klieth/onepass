@@ -1,0 +1,10 @@
+#!/usr/bin/env ruby
+
+require "OnePass"
+require "highline"
+
+if __FILE__ == $0
+  require "highline/import"
+  master_password ||= ask('Enter 1Password Master Password') { |q| q.echo = false }
+  OnePass::Manager.new(master_password)
+end

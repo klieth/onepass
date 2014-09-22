@@ -50,33 +50,33 @@ module OnePass
 
         # read profile data
         db = SQLite3::Database.new temp.path
-        # FIXME: This assumes a single profile; it's unclear from the documentation whether it's possible to have multiple of these
-        profile = db.execute "SELECT master_key_data,overview_key_data,salt,iterations FROM profiles"
-        profile = profile[0]
-
-        # derive the key from the password
-        derived_key = OpenSSL::PKCS5.pbkdf2_hmac(master_password, profile[2], profile[3], 64, OpenSSL::Digest::SHA512.new)
-        derived_encryption_key = derived_key[0..31]
-        derived_mac_key = derived_key[32..-1]
-
-        # try to unlock profile data. return fail if failed login
-        overview_key_data = OnePass::Opdata.new(profile[1], derived_encryption_key, derived_mac_key)
-        overview_key = OpenSSL::Digest::SHA512.new.digest(overview_key_data.data)
-        overview_encryption_key, overview_mac_key = overview_key[0..31], overview_key[32..-1]
-
-        # load overview opdata into object based format. overviews are stored decrypted for use later.
-        # the encrypted data for the keys is included, but is not decrypted unless requested later
         @overviews = []
-        db.execute "SELECT items.key_data, items.overview_data, item_details.data FROM items INNER JOIN item_details ON items.id=item_details.item_id;" do |row|
-          overview = OnePass::Opdata.new(row[1], overview_encryption_key, overview_mac_key)
-          json = JSON.parse(overview.data).merge({"key_data"=>row[0],"data"=>row[2]})
-          @overviews << json
-        end
+        @masters = []
+        db.execute "SELECT id,master_key_data,overview_key_data,salt,iterations FROM profiles" do |profile|
 
-        # decrypt the master key for use later
-        master_key_data = OnePass::Opdata.new(profile[0], derived_encryption_key, derived_mac_key)
-        master_key = OpenSSL::Digest::SHA512.new.digest(master_key_data.data)
-        @master_encryption_key, @master_mac_key = master_key[0..31], master_key[32..-1]
+          # derive the key from the password
+          derived_key = OpenSSL::PKCS5.pbkdf2_hmac(master_password, profile[3], profile[4], 64, OpenSSL::Digest::SHA512.new)
+          derived_encryption_key = derived_key[0..31]
+          derived_mac_key = derived_key[32..-1]
+
+          # try to unlock profile data. return fail if failed login
+          overview_key_data = OnePass::Opdata.new(profile[2], derived_encryption_key, derived_mac_key)
+          overview_key = OpenSSL::Digest::SHA512.new.digest(overview_key_data.data)
+          overview_encryption_key, overview_mac_key = overview_key[0..31], overview_key[32..-1]
+
+          # load overview opdata into object based format. overviews are stored decrypted for use later.
+          # the encrypted data for the keys is included, but is not decrypted unless requested later
+          db.execute "SELECT items.key_data, items.overview_data, item_details.data FROM items INNER JOIN item_details ON items.id=item_details.item_id WHERE items.profile_id=#{profile[0]};" do |row|
+            overview = OnePass::Opdata.new(row[1], overview_encryption_key, overview_mac_key)
+            json = JSON.parse(overview.data).merge({profile: profile[0], key_data: row[0], data: row[2]})
+            @overviews << json
+          end
+
+          # decrypt the master key for use later
+          master_key_data = OnePass::Opdata.new(profile[1], derived_encryption_key, derived_mac_key)
+          master_key = OpenSSL::Digest::SHA512.new.digest(master_key_data.data)
+          @masters[profile[0]] = {enc_key: master_key[0..31], mac_key: master_key[32..-1]}
+        end
 
         # delete the local copy of the database
         db.close
@@ -95,18 +95,19 @@ module OnePass
     end
 
     def decrypt(overview)
-      key_data = overview["key_data"][0..-33]
-      mac = overview["key_data"][-32..-1]
-      if OpenSSL::HMAC.digest(OpenSSL::Digest::SHA256.new, @master_mac_key, key_data) != mac
+      key_data = overview[:key_data][0..-33]
+      mac = overview[:key_data][-32..-1]
+      profile = overview[:profile]
+      if OpenSSL::HMAC.digest(OpenSSL::Digest::SHA256.new, @masters[profile][:mac_key], key_data) != mac
         raise VerifyException.new("The item's encryption key couldn't be verified.")
       end
       cipher = OpenSSL::Cipher::AES.new(256, :CBC)
       cipher.decrypt
       cipher.padding = 0
       cipher.iv = key_data[0..15]
-      cipher.key = @master_encryption_key
+      cipher.key = @masters[profile][:enc_key]
       key_data = cipher.update(key_data[16..-1]) + cipher.final
-      return JSON.parse(OnePass::Opdata.new(overview["data"],key_data[0..31],key_data[32..-1]).data)["password"]
+      return JSON.parse(OnePass::Opdata.new(overview[:data],key_data[0..31],key_data[32..-1]).data)["password"]
     end
   end
 end
