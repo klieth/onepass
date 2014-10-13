@@ -41,15 +41,28 @@ module OnePass
 
   class Manager
     def initialize(master_password, path = nil)
-      begin
-        # copy db locally
-        path ||= "#{ENV["HOME"]}/Library/Application Support/1Password 4/Data/OnePassword.sqlite"
-        raise "Can't find sqlite db at #{path}" unless File.exist? path
-        temp = Tempfile.new('OnePassword.sqlite')
-        FileUtils.cp(path, temp)
+      path ||= "#{ENV["HOME"]}/Library/Application Support/1Password 4/Data/OnePassword.sqlite"
+      raise "Can't find sqlite db at #{path}" unless File.exist? path
+
+      db_filename = File.basename(path)
+      dir_path = File.dirname(path)
+
+      # 1Password keeps the sqlite db open in exclusive mode. So we copy it to
+      # a tempdir and use that.
+      #
+      # Note that Dir.mktmpdir will clean up after itself when
+      # passed a block.
+      Dir.mktmpdir('OnePass') do |tmpdir|
+        FileUtils.cp_r("#{dir_path}/.", tmpdir)
+        sqlite_file = File.join(tmpdir, db_filename)
+
+        # roll the main db forward using write-ahead-log. weirdly, this doesn't
+        # work unless you're in the directory (absolute path doesn't work)
+        `sqlite3 "#{sqlite_file}" "VACUUM;"`
+        raise Exception, 'sqlite3 VACUUM failed' unless $? == 0
 
         # read profile data
-        db = SQLite3::Database.new temp.path
+        db = SQLite3::Database.new(sqlite_file)
         @overviews = []
         @masters = []
         db.execute "SELECT id,master_key_data,overview_key_data,salt,iterations FROM profiles" do |profile|
@@ -78,10 +91,9 @@ module OnePass
           @masters[profile[0]] = {enc_key: master_key[0..31], mac_key: master_key[32..-1]}
         end
 
-        # delete the local copy of the database
         db.close
-      ensure
-        temp.close(true)
+
+        # tmpdir removed when block exits
       end
     end
 
