@@ -56,13 +56,11 @@ module OnePass
         FileUtils.cp_r("#{dir_path}/.", tmpdir)
         sqlite_file = File.join(tmpdir, db_filename)
 
-        # roll the main db forward using write-ahead-log. weirdly, this doesn't
-        # work unless you're in the directory (absolute path doesn't work)
-        `sqlite3 "#{sqlite_file}" "VACUUM;"`
-        raise Exception, 'sqlite3 VACUUM failed' unless $? == 0
+        # roll the main db forward using write-ahead-log.
+        db = SQLite3::Database.new(sqlite_file)
+        db.execute "VACUUM;"
 
         # read profile data
-        db = SQLite3::Database.new(sqlite_file)
         @overviews = []
         @masters = []
         db.execute "SELECT id,master_key_data,overview_key_data,salt,iterations FROM profiles" do |profile|
