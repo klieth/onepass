@@ -19,7 +19,7 @@ module OnePass
       if buf[0..7] != "opdata01"
         raise OnePass::Opdata::InvalidException.new("Header was incorrect")
       end
-      @length = buf[8..15].unpack("V")[0]
+      @length = buf[8..15].unpack("Q<")[0]
       @mac = buf[-32..-1]
       if OpenSSL::HMAC.digest(OpenSSL::Digest::SHA256.new, mac, buf[0..-33]) != @mac
         raise OnePass::VerifyException.new("MAC doesn't match; verify failed. Check your encryption/mac keys.")
