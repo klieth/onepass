@@ -3,6 +3,7 @@ require "openssl"
 require "sqlite3"
 require "json"
 require "tempfile"
+require "cfpropertylist"
 
 module OnePass
   class VerifyException < Exception
